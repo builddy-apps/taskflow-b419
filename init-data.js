@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
-import path from 'path';
 import fs from 'fs';
+import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -12,438 +12,577 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 
 const DB_PATH = path.join(DATA_DIR, 'app.db');
+const db = new Database(DB_PATH);
 
-const db = new Database(DB_PATH, { readonly: false });
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 // Check if data already exists
-const taskCount = db.prepare('SELECT COUNT(*) as count FROM tasks').get();
-if (taskCount.count > 0) {
+const count = db.prepare('SELECT COUNT(*) as count FROM tasks').get();
+if (count.count > 0) {
   console.log('Data already seeded, skipping...');
   db.close();
   process.exit(0);
 }
 
-// Ensure categories table has default data
-const catCount = db.prepare('SELECT COUNT(*) as count FROM categories').get();
-if (catCount.count === 0) {
-  const insertCategory = db.prepare(`
-    INSERT INTO categories (name, color, is_default, sort_order)
-    VALUES (?, ?, ?, ?)
-  `);
-  
-  const seedDefaults = db.transaction(() => {
-    insertCategory.run('Work', '#3B82F6', 1, 0);
-    insertCategory.run('Personal', '#8B5CF6', 1, 1);
-    insertCategory.run('Health', '#10B981', 1, 2);
-    insertCategory.run('Learning', '#F59E0B', 1, 3);
-  });
-  seedDefaults();
-}
-
-// Add additional categories
-const insertCategory = db.prepare(`
-  INSERT OR IGNORE INTO categories (name, color, is_default, sort_order)
-  VALUES (?, ?, ?, ?)
-`);
-
-const addCategories = db.transaction(() => {
-  insertCategory.run('Finance', '#EF4444', 0, 4);
-  insertCategory.run('Home', '#6366F1', 0, 5);
-  insertCategory.run('Side Project', '#EC4899', 0, 6);
-});
-
-addCategories();
-
-// Get category IDs for task references
-const categories = db.prepare('SELECT id, name FROM categories').all();
-const catMap = {};
-categories.forEach(c => catMap[c.name] = c.id);
-
 // Date helpers
-function daysAgo(n) {
-  return new Date(Date.now() - n * 86400000).toISOString().split('T')[0];
-}
+const daysAgo = (days) => {
+  const d = new Date(Date.now() - days * 86400000);
+  return d.toISOString().replace('T', ' ').substring(0, 19);
+};
 
-function daysFromNow(n) {
-  return new Date(Date.now() + n * 86400000).toISOString().split('T')[0];
-}
+const daysFromNow = (days) => {
+  const d = new Date(Date.now() + days * 86400000);
+  return d.toISOString().replace('T', ' ').substring(0, 19);
+};
 
-function timestampDaysAgo(n) {
-  return new Date(Date.now() - n * 86400000).toISOString().replace('T', ' ').substring(0, 19);
-}
+const todayStr = () => {
+  return new Date().toISOString().split('T')[0];
+};
 
-// Task data
+const dateOnly = (daysOffset) => {
+  const d = new Date(Date.now() + daysOffset * 86400000);
+  return d.toISOString().split('T')[0];
+};
+
+// Additional categories beyond the 4 defaults (Work, Personal, Health, Learning)
+const additionalCategories = [
+  { name: 'Finance', color: '#EC4899', is_default: 0, sort_order: 5, created_at: daysAgo(25), updated_at: daysAgo(25) },
+  { name: 'Home', color: '#6366F1', is_default: 0, sort_order: 6, created_at: daysAgo(25), updated_at: daysAgo(25) },
+  { name: 'Social', color: '#14B8A6', is_default: 0, sort_order: 7, created_at: daysAgo(20), updated_at: daysAgo(20) },
+  { name: 'Shopping', color: '#F43F5E', is_default: 0, sort_order: 8, created_at: daysAgo(15), updated_at: daysAgo(15) }
+];
+
+// Tasks - category IDs: 1=Work, 2=Personal, 3=Health, 4=Learning, 5=Finance, 6=Home, 7=Social, 8=Shopping
 const tasks = [
-  // Overdue tasks
+  // Work tasks
   {
-    title: 'Prepare Q4 budget presentation',
-    description: 'Finalize revenue projections and expense forecasts for the board meeting. Include comparison with Q3 actuals and variance analysis.',
+    title: 'Finalize Q4 marketing budget proposal',
+    description: 'Review all department requests, consolidate spreadsheet, and prepare presentation for Friday board meeting',
     priority: 'high',
-    due_date: daysAgo(3),
-    category_id: catMap['Work'],
+    due_date: dateOnly(1),
+    category_id: 1,
     completed: 0,
     completed_at: null,
     sort_order: 1,
-    created_at: timestampDaysAgo(8),
-    updated_at: timestampDaysAgo(2)
+    created_at: daysAgo(12),
+    updated_at: daysAgo(2)
   },
   {
-    title: 'Review authentication module PR',
-    description: 'Check the OAuth2 implementation for security best practices. Verify token refresh logic and session management.',
+    title: 'Update API documentation for v2.0',
+    description: 'Revise endpoints documentation, add new authentication flows, and deprecation notices for legacy routes',
     priority: 'medium',
-    due_date: daysAgo(1),
-    category_id: catMap['Work'],
+    due_date: dateOnly(4),
+    category_id: 1,
     completed: 0,
     completed_at: null,
     sort_order: 2,
-    created_at: timestampDaysAgo(5),
-    updated_at: timestampDaysAgo(1)
+    created_at: daysAgo(8),
+    updated_at: daysAgo(1)
   },
   {
-    title: 'Submit expense report',
-    description: 'Compile all receipts from the Chicago conference. Submit through Concur system with proper coding.',
-    priority: 'medium',
-    due_date: daysAgo(5),
-    category_id: catMap['Finance'],
+    title: 'Prepare client presentation slides',
+    description: 'Create 20-slide deck for Acme Corp quarterly review with updated metrics, projections, and action items',
+    priority: 'high',
+    due_date: todayStr(),
+    category_id: 1,
     completed: 0,
     completed_at: null,
     sort_order: 3,
-    created_at: timestampDaysAgo(10),
-    updated_at: timestampDaysAgo(4)
+    created_at: daysAgo(5),
+    updated_at: daysAgo(1)
   },
   {
-    title: 'Fix CSS layout issues on mobile',
-    description: 'The dashboard cards are overflowing on screens smaller than 375px. Test on iOS Safari and Chrome Android.',
-    priority: 'high',
-    due_date: daysAgo(2),
-    category_id: catMap['Side Project'],
-    completed: 0,
-    completed_at: null,
-    sort_order: 4,
-    created_at: timestampDaysAgo(6),
-    updated_at: timestampDaysAgo(3)
-  },
-  
-  // Today's tasks
-  {
-    title: 'Team standup meeting notes',
-    description: 'Document action items from today\'s standup. Follow up with design team on updated wireframes for the dashboard.',
+    title: 'Code review authentication module PR',
+    description: 'Review pull request #247 implementing OAuth2, JWT refresh tokens, and session management improvements',
     priority: 'medium',
-    due_date: daysAgo(0),
-    category_id: catMap['Work'],
+    due_date: dateOnly(-2),
+    category_id: 1,
+    completed: 1,
+    completed_at: daysAgo(2),
+    sort_order: 4,
+    created_at: daysAgo(7),
+    updated_at: daysAgo(2)
+  },
+  {
+    title: 'Set up CI/CD pipeline for staging',
+    description: 'Configure GitHub Actions workflow for automated testing, build, and deployment to staging environment',
+    priority: 'medium',
+    due_date: dateOnly(6),
+    category_id: 1,
     completed: 0,
     completed_at: null,
     sort_order: 5,
-    created_at: timestampDaysAgo(1),
-    updated_at: timestampDaysAgo(0)
+    created_at: daysAgo(10),
+    updated_at: daysAgo(3)
   },
   {
-    title: 'Schedule dentist appointment',
-    description: 'Call Dr. Martinez\'s office for a routine cleaning. Prefer Tuesday or Thursday after 3pm.',
+    title: 'Weekly team standup preparation',
+    description: 'Compile status updates, blockers list, and priority items for Monday morning standup meeting',
     priority: 'low',
-    due_date: daysAgo(0),
-    category_id: catMap['Health'],
+    due_date: todayStr(),
+    category_id: 1,
     completed: 0,
     completed_at: null,
     sort_order: 6,
-    created_at: timestampDaysAgo(3),
-    updated_at: timestampDaysAgo(0)
+    created_at: daysAgo(1),
+    updated_at: daysAgo(1)
   },
   {
-    title: 'Pay electricity bill',
-    description: 'Due amount is $142.50. Set up autopay to avoid late fees in the future.',
+    title: 'Database migration for user profiles',
+    description: 'Write and test migration script to add new profile fields: bio, location, social links',
     priority: 'high',
-    due_date: daysAgo(0),
-    category_id: catMap['Finance'],
+    due_date: dateOnly(-1),
+    category_id: 1,
     completed: 0,
     completed_at: null,
     sort_order: 7,
-    created_at: timestampDaysAgo(4),
-    updated_at: timestampDaysAgo(1)
+    created_at: daysAgo(6),
+    updated_at: daysAgo(2)
   },
   {
-    title: 'Review project Phoenix launch plan',
-    description: 'Go through the deployment checklist with the team. Ensure all rollback procedures are documented.',
-    priority: 'high',
-    due_date: daysAgo(0),
-    category_id: catMap['Work'],
-    completed: 0,
-    completed_at: null,
+    title: 'Conduct user interviews for feature research',
+    description: 'Schedule and complete 5 user interviews focusing on dashboard customization needs',
+    priority: 'medium',
+    due_date: dateOnly(-5),
+    category_id: 1,
+    completed: 1,
+    completed_at: daysAgo(5),
     sort_order: 8,
-    created_at: timestampDaysAgo(3),
-    updated_at: timestampDaysAgo(0)
+    created_at: daysAgo(15),
+    updated_at: daysAgo(5)
   },
-  
-  // Upcoming tasks (next 7 days)
+
+  // Personal tasks
   {
-    title: 'Update API documentation',
-    description: 'Add new endpoints for user preferences and notification settings. Include request/response examples and error codes.',
-    priority: 'medium',
-    due_date: daysFromNow(2),
-    category_id: catMap['Work'],
+    title: 'Renew car insurance policy',
+    description: 'Compare quotes from Progressive, Geico, and State Farm before current policy expires next week',
+    priority: 'high',
+    due_date: dateOnly(-1),
+    category_id: 2,
     completed: 0,
     completed_at: null,
-    sort_order: 9,
-    created_at: timestampDaysAgo(4),
-    updated_at: timestampDaysAgo(1)
+    sort_order: 1,
+    created_at: daysAgo(14),
+    updated_at: daysAgo(3)
   },
   {
-    title: 'Meal prep for the week',
-    description: 'Prepare lunches for Mon-Fri: chicken stir-fry, quinoa bowls, and Mediterranean wraps. Buy groceries Sunday evening.',
+    title: 'Book dentist appointment',
+    description: 'Schedule routine cleaning and checkup with Dr. Martinez - morning slot preferred',
     priority: 'medium',
-    due_date: daysFromNow(1),
-    category_id: catMap['Health'],
+    due_date: dateOnly(7),
+    category_id: 2,
     completed: 0,
     completed_at: null,
-    sort_order: 10,
-    created_at: timestampDaysAgo(2),
-    updated_at: timestampDaysAgo(0)
+    sort_order: 2,
+    created_at: daysAgo(6),
+    updated_at: daysAgo(6)
+  },
+  {
+    title: 'Organize home office space',
+    description: 'Sort through paperwork, organize cable management, and install new dual monitor arm',
+    priority: 'low',
+    due_date: dateOnly(10),
+    category_id: 2,
+    completed: 0,
+    completed_at: null,
+    sort_order: 3,
+    created_at: daysAgo(9),
+    updated_at: daysAgo(4)
+  },
+  {
+    title: 'Return online shopping package',
+    description: 'Drop off return at Whole Foods before return window closes on Friday',
+    priority: 'medium',
+    due_date: dateOnly(2),
+    category_id: 2,
+    completed: 0,
+    completed_at: null,
+    sort_order: 4,
+    created_at: daysAgo(3),
+    updated_at: daysAgo(3)
+  },
+  {
+    title: 'Plan weekend trip to Asheville',
+    description: 'Research cabin rentals, book accommodation, create packing list, and plan hiking trails',
+    priority: 'low',
+    due_date: dateOnly(12),
+    category_id: 2,
+    completed: 1,
+    completed_at: daysAgo(2),
+    sort_order: 5,
+    created_at: daysAgo(18),
+    updated_at: daysAgo(2)
+  },
+  {
+    title: 'Update passport application',
+    description: 'Gather required documents, fill out renewal form, and schedule photo appointment at CVS',
+    priority: 'high',
+    due_date: dateOnly(-3),
+    category_id: 2,
+    completed: 0,
+    completed_at: null,
+    sort_order: 6,
+    created_at: daysAgo(20),
+    updated_at: daysAgo(8)
+  },
+
+  // Health tasks
+  {
+    title: 'Complete 5K training run',
+    description: 'Week 6 of Couch to 5K program - 25 minute continuous jog at moderate pace',
+    priority: 'medium',
+    due_date: todayStr(),
+    category_id: 3,
+    completed: 0,
+    completed_at: null,
+    sort_order: 1,
+    created_at: daysAgo(4),
+    updated_at: daysAgo(1)
+  },
+  {
+    title: 'Meal prep for the work week',
+    description: 'Prepare grilled chicken, quinoa bowls, roasted vegetables, and overnight oats for breakfast',
+    priority: 'medium',
+    due_date: dateOnly(-4),
+    category_id: 3,
+    completed: 1,
+    completed_at: daysAgo(4),
+    sort_order: 2,
+    created_at: daysAgo(7),
+    updated_at: daysAgo(4)
   },
   {
     title: 'Schedule annual physical exam',
-    description: 'Book appointment with Dr. Chen for comprehensive checkup. Bring lab results from last visit and list of current medications.',
+    description: 'Call Dr. Thompson office to schedule appointment - need fasting blood work panel',
     priority: 'high',
-    due_date: daysFromNow(3),
-    category_id: catMap['Health'],
+    due_date: dateOnly(14),
+    category_id: 3,
     completed: 0,
     completed_at: null,
-    sort_order: 11,
-    created_at: timestampDaysAgo(5),
-    updated_at: timestampDaysAgo(1)
+    sort_order: 3,
+    created_at: daysAgo(3),
+    updated_at: daysAgo(3)
   },
   {
-    title: 'Client presentation rehearsal',
-    description: 'Practice the product demo flow with Sarah. Ensure staging environment is stable and all demo data is fresh.',
+    title: 'Refill prescription medications',
+    description: 'Call pharmacy to refill lisinopril 10mg and vitamin D3 supplements before running out',
     priority: 'high',
-    due_date: daysFromNow(3),
-    category_id: catMap['Work'],
+    due_date: dateOnly(-6),
+    category_id: 3,
     completed: 0,
     completed_at: null,
-    sort_order: 12,
-    created_at: timestampDaysAgo(2),
-    updated_at: timestampDaysAgo(0)
+    sort_order: 4,
+    created_at: daysAgo(15),
+    updated_at: daysAgo(7)
   },
   {
-    title: 'Complete React hooks tutorial',
-    description: 'Finish sections on useEffect cleanup and custom hooks. Build the practice project for portfolio.',
+    title: 'Evening yoga and meditation',
+    description: 'Follow 30-minute restorative yoga video, then 10-minute guided meditation for better sleep',
     priority: 'low',
-    due_date: daysFromNow(4),
-    category_id: catMap['Learning'],
+    due_date: todayStr(),
+    category_id: 3,
     completed: 0,
     completed_at: null,
-    sort_order: 13,
-    created_at: timestampDaysAgo(7),
-    updated_at: timestampDaysAgo(1)
+    sort_order: 5,
+    created_at: daysAgo(2),
+    updated_at: daysAgo(1)
   },
   {
-    title: 'Organize home office desk',
-    description: 'Sort through papers, organize cables with ties, and set up the new monitor arm. Take before/after photos.',
+    title: 'Track daily water intake',
+    description: 'Aim for 8 glasses minimum - use water tracking app and set hourly reminders',
     priority: 'low',
-    due_date: daysFromNow(5),
-    category_id: catMap['Home'],
+    due_date: dateOnly(0),
+    category_id: 3,
     completed: 0,
     completed_at: null,
-    sort_order: 14,
-    created_at: timestampDaysAgo(6),
-    updated_at: timestampDaysAgo(2)
+    sort_order: 6,
+    created_at: daysAgo(1),
+    updated_at: daysAgo(1)
   },
+
+  // Learning tasks
   {
-    title: 'Complete TypeScript fundamentals course',
-    description: 'Finish modules on generics, utility types, and conditional types. Complete all coding exercises in the sandbox.',
+    title: 'Complete React Hooks advanced tutorial',
+    description: 'Finish modules 5-8 covering custom hooks, context patterns, and performance optimization',
     priority: 'medium',
-    due_date: daysFromNow(6),
-    category_id: catMap['Learning'],
+    due_date: dateOnly(5),
+    category_id: 4,
     completed: 0,
     completed_at: null,
-    sort_order: 15,
-    created_at: timestampDaysAgo(12),
-    updated_at: timestampDaysAgo(1)
+    sort_order: 1,
+    created_at: daysAgo(10),
+    updated_at: daysAgo(3)
   },
   {
-    title: 'Research summer vacation destinations',
-    description: 'Compare flights and accommodations for Portugal vs. Greece. Budget around $3000 for two weeks in July.',
+    title: 'Read "Designing Data-Intensive Applications"',
+    description: 'Complete chapters 7-9 on transactions, distributed consistency, and consensus algorithms',
     priority: 'low',
-    due_date: daysFromNow(7),
-    category_id: catMap['Personal'],
+    due_date: dateOnly(15),
+    category_id: 4,
     completed: 0,
     completed_at: null,
-    sort_order: 16,
-    created_at: timestampDaysAgo(8),
-    updated_at: timestampDaysAgo(3)
+    sort_order: 2,
+    created_at: daysAgo(20),
+    updated_at: daysAgo(5)
   },
   {
-    title: 'Deploy portfolio website v2',
-    description: 'Push the redesigned portfolio to production. Update DNS records and verify SSL certificate renewal.',
+    title: 'Practice SQL joins and subqueries',
+    description: 'Complete 10 exercises on LeetCode database section focusing on complex multi-table joins',
     priority: 'medium',
-    due_date: daysFromNow(5),
-    category_id: catMap['Side Project'],
-    completed: 0,
-    completed_at: null,
-    sort_order: 17,
-    created_at: timestampDaysAgo(9),
-    updated_at: timestampDaysAgo(2)
+    due_date: dateOnly(-3),
+    category_id: 4,
+    completed: 1,
+    completed_at: daysAgo(3),
+    sort_order: 3,
+    created_at: daysAgo(12),
+    updated_at: daysAgo(3)
   },
   {
-    title: 'Fix leaky bathroom faucet',
-    description: 'Watch tutorial video first. Might just need a new washer. Hardware store run if parts are needed.',
-    priority: 'medium',
-    due_date: daysFromNow(4),
-    category_id: catMap['Home'],
-    completed: 0,
-    completed_at: null,
-    sort_order: 18,
-    created_at: timestampDaysAgo(7),
-    updated_at: timestampDaysAgo(1)
-  },
-  
-  // Tasks with no due date
-  {
-    title: 'Renew passport application',
-    description: 'Check expiration date - might need renewal before summer trip. Gather required documents and photos.',
+    title: 'Watch microservices architecture talk',
+    description: 'Watch KubeCon 2024 keynote on service mesh patterns, observability, and best practices',
     priority: 'low',
-    due_date: null,
-    category_id: catMap['Personal'],
+    due_date: dateOnly(8),
+    category_id: 4,
     completed: 0,
     completed_at: null,
-    sort_order: 19,
-    created_at: timestampDaysAgo(10),
-    updated_at: timestampDaysAgo(5)
+    sort_order: 4,
+    created_at: daysAgo(7),
+    updated_at: daysAgo(5)
   },
   {
-    title: 'Read "Atomic Habits" by James Clear',
-    description: 'Started chapter 3. Take notes on habit stacking and implementation intentions strategies.',
-    priority: 'low',
-    due_date: null,
-    category_id: catMap['Learning'],
-    completed: 0,
-    completed_at: null,
-    sort_order: 20,
-    created_at: timestampDaysAgo(14),
-    updated_at: timestampDaysAgo(4)
-  },
-  {
-    title: 'Set up automated savings transfer',
-    description: 'Configure bi-weekly transfer of $250 to high-yield savings account. Align with pay schedule.',
+    title: 'Update portfolio website with new projects',
+    description: 'Add recent case studies, refresh hero section, and update testimonials from clients',
     priority: 'medium',
-    due_date: null,
-    category_id: catMap['Finance'],
+    due_date: dateOnly(9),
+    category_id: 4,
     completed: 0,
     completed_at: null,
-    sort_order: 21,
-    created_at: timestampDaysAgo(8),
-    updated_at: timestampDaysAgo(3)
+    sort_order: 5,
+    created_at: daysAgo(14),
+    updated_at: daysAgo(6)
   },
-  
-  // Completed tasks
   {
-    title: 'Set up CI/CD pipeline',
-    description: 'Configure GitHub Actions for automated testing and deployment to staging environment.',
+    title: 'Complete TypeScript generics exercises',
+    description: 'Work through advanced type challenges on type-challenges.org focusing on conditional types',
+    priority: 'medium',
+    due_date: dateOnly(-7),
+    category_id: 4,
+    completed: 1,
+    completed_at: daysAgo(7),
+    sort_order: 6,
+    created_at: daysAgo(16),
+    updated_at: daysAgo(7)
+  },
+
+  // Finance tasks
+  {
+    title: 'Review and adjust monthly budget',
+    description: 'Analyze spending patterns in Mint, identify areas to cut back, and allocate savings goals',
+    priority: 'medium',
+    due_date: dateOnly(3),
+    category_id: 5,
+    completed: 0,
+    completed_at: null,
+    sort_order: 1,
+    created_at: daysAgo(5),
+    updated_at: daysAgo(2)
+  },
+  {
+    title: 'File quarterly estimated taxes',
+    description: 'Calculate Q3 earnings, complete Form 1040-ES, and submit payment before deadline',
     priority: 'high',
-    due_date: daysAgo(2),
-    category_id: catMap['Work'],
+    due_date: dateOnly(-8),
+    category_id: 5,
     completed: 1,
-    completed_at: timestampDaysAgo(1),
-    sort_order: 22,
-    created_at: timestampDaysAgo(10),
-    updated_at: timestampDaysAgo(1)
+    completed_at: daysAgo(8),
+    sort_order: 2,
+    created_at: daysAgo(25),
+    updated_at: daysAgo(8)
   },
   {
-    title: '30-minute morning run',
-    description: 'Completed 5K route through the park. Personal best time of 26:45!',
+    title: 'Research investment portfolio rebalancing',
+    description: 'Review current allocation, read up on market conditions, and plan adjustments for Q4',
     priority: 'low',
-    due_date: daysAgo(1),
-    category_id: catMap['Health'],
-    completed: 1,
-    completed_at: timestampDaysAgo(0),
-    sort_order: 23,
-    created_at: timestampDaysAgo(2),
-    updated_at: timestampDaysAgo(0)
+    due_date: dateOnly(11),
+    category_id: 5,
+    completed: 0,
+    completed_at: null,
+    sort_order: 3,
+    created_at: daysAgo(8),
+    updated_at: daysAgo(4)
   },
   {
-    title: 'Read chapter 5 of Designing Data-Intensive Applications',
-    description: 'Covered replication and partitioning concepts. Took detailed notes for the book club discussion on Thursday.',
+    title: 'Set up automatic bill payments',
+    description: 'Configure auto-pay for utilities, internet, and streaming services to avoid late fees',
     priority: 'medium',
-    due_date: daysAgo(4),
-    category_id: catMap['Learning'],
-    completed: 1,
-    completed_at: timestampDaysAgo(2),
-    sort_order: 24,
-    created_at: timestampDaysAgo(12),
-    updated_at: timestampDaysAgo(2)
+    due_date: dateOnly(-2),
+    category_id: 5,
+    completed: 0,
+    completed_at: null,
+    sort_order: 4,
+    created_at: daysAgo(11),
+    updated_at: daysAgo(5)
+  },
+
+  // Home tasks
+  {
+    title: 'Fix leaky kitchen faucet',
+    description: 'Replace worn washer and O-ring in Delta faucet - watch YouTube tutorial first',
+    priority: 'high',
+    due_date: dateOnly(2),
+    category_id: 6,
+    completed: 0,
+    completed_at: null,
+    sort_order: 1,
+    created_at: daysAgo(9),
+    updated_at: daysAgo(4)
   },
   {
-    title: 'Update LinkedIn profile',
-    description: 'Added new role description, updated skills section, and requested recommendations from 3 colleagues.',
+    title: 'Deep clean master bathroom',
+    description: 'Scrub tiles, clean grout lines, organize medicine cabinet, replace shower curtain liner',
     priority: 'low',
-    due_date: daysAgo(6),
-    category_id: catMap['Personal'],
-    completed: 1,
-    completed_at: timestampDaysAgo(4),
-    sort_order: 25,
-    created_at: timestampDaysAgo(14),
-    updated_at: timestampDaysAgo(4)
+    due_date: dateOnly(6),
+    category_id: 6,
+    completed: 0,
+    completed_at: null,
+    sort_order: 2,
+    created_at: daysAgo(6),
+    updated_at: daysAgo(6)
   },
   {
-    title: 'Complete quarterly tax estimates',
-    description: 'Calculated Q4 estimated payments for both federal and state. Scheduled payments for January 15th deadline.',
-    priority: 'high',
-    due_date: daysAgo(7),
-    category_id: catMap['Finance'],
-    completed: 1,
-    completed_at: timestampDaysAgo(5),
-    sort_order: 26,
-    created_at: timestampDaysAgo(15),
-    updated_at: timestampDaysAgo(5)
-  },
-  {
-    title: 'Clean out garage',
-    description: 'Donated old furniture to Goodwill. Organized tools on pegboard. Swept and mopped the floor.',
+    title: 'Organize garage storage',
+    description: 'Install shelving unit, sort seasonal items into labeled bins, donate unused equipment',
     priority: 'medium',
-    due_date: daysAgo(3),
-    category_id: catMap['Home'],
-    completed: 1,
-    completed_at: timestampDaysAgo(2),
-    sort_order: 27,
-    created_at: timestampDaysAgo(8),
-    updated_at: timestampDaysAgo(2)
+    due_date: dateOnly(13),
+    category_id: 6,
+    completed: 0,
+    completed_at: null,
+    sort_order: 3,
+    created_at: daysAgo(11),
+    updated_at: daysAgo(7)
   },
   {
-    title: 'Refactor user authentication module',
-    description: 'Migrated from session-based auth to JWT tokens. Updated all protected routes and middleware.',
-    priority: 'high',
-    due_date: daysAgo(4),
-    category_id: catMap['Side Project'],
-    completed: 1,
-    completed_at: timestampDaysAgo(3),
-    sort_order: 28,
-    created_at: timestampDaysAgo(11),
-    updated_at: timestampDaysAgo(3)
-  },
-  {
-    title: 'Complete Kubernetes basics course',
-    description: 'Finished all modules on pods, services, and deployments. Earned the certificate of completion.',
+    title: 'Replace HVAC air filter',
+    description: 'Buy MERV 11 filter size 20x25x1 and replace - last changed 3 months ago',
     priority: 'medium',
-    due_date: daysAgo(5),
-    category_id: catMap['Learning'],
+    due_date: dateOnly(-4),
+    category_id: 6,
     completed: 1,
-    completed_at: timestampDaysAgo(3),
-    sort_order: 29,
-    created_at: timestampDaysAgo(20),
-    updated_at: timestampDaysAgo(3)
+    completed_at: daysAgo(4),
+    sort_order: 4,
+    created_at: daysAgo(18),
+    updated_at: daysAgo(4)
+  },
+
+  // Social tasks
+  {
+    title: 'RSVP to Sarah and Tom wedding',
+    description: 'Send confirmation for June 15th ceremony, select meal preference (chicken/fish/vegetarian)',
+    priority: 'high',
+    due_date: dateOnly(-2),
+    category_id: 7,
+    completed: 0,
+    completed_at: null,
+    sort_order: 1,
+    created_at: daysAgo(20),
+    updated_at: daysAgo(8)
+  },
+  {
+    title: 'Plan game night with friends',
+    description: 'Coordinate Saturday date, prepare appetizers, choose 3-4 board games, set up living room',
+    priority: 'low',
+    due_date: dateOnly(4),
+    category_id: 7,
+    completed: 0,
+    completed_at: null,
+    sort_order: 2,
+    created_at: daysAgo(5),
+    updated_at: daysAgo(2)
+  },
+  {
+    title: 'Send birthday card to Mom',
+    description: 'Buy Hallmark card, write personal message, and mail by Tuesday to arrive on time',
+    priority: 'high',
+    due_date: dateOnly(1),
+    category_id: 7,
+    completed: 0,
+    completed_at: null,
+    sort_order: 3,
+    created_at: daysAgo(3),
+    updated_at: daysAgo(3)
+  },
+  {
+    title: 'Volunteer at community food bank',
+    description: 'Saturday morning shift 9am-12pm sorting donations and packing food boxes',
+    priority: 'medium',
+    due_date: dateOnly(-10),
+    category_id: 7,
+    completed: 1,
+    completed_at: daysAgo(10),
+    sort_order: 4,
+    created_at: daysAgo(22),
+    updated_at: daysAgo(10)
+  },
+
+  // Shopping tasks
+  {
+    title: 'Buy birthday gift for Dad',
+    description: 'Looking for new fishing rod or tackle box - check Amazon, Bass Pro Shop, and local store',
+    priority: 'medium',
+    due_date: dateOnly(3),
+    category_id: 8,
+    completed: 0,
+    completed_at: null,
+    sort_order: 1,
+    created_at: daysAgo(4),
+    updated_at: daysAgo(2)
+  },
+  {
+    title: 'Order new running shoes',
+    description: 'Research Nike Pegasus vs Brooks Ghost, find best price, order in size 10.5',
+    priority: 'low',
+    due_date: dateOnly(7),
+    category_id: 8,
+    completed: 0,
+    completed_at: null,
+    sort_order: 2,
+    created_at: daysAgo(6),
+    updated_at: daysAgo(4)
+  },
+  {
+    title: 'Grocery shopping for the week',
+    description: 'Buy vegetables, proteins, snacks, and ingredients for meal prep recipes',
+    priority: 'medium',
+    due_date: dateOnly(0),
+    category_id: 8,
+    completed: 0,
+    completed_at: null,
+    sort_order: 3,
+    created_at: daysAgo(1),
+    updated_at: daysAgo(1)
   }
 ];
 
-// Insert all tasks
-const insertTask = db.prepare(`
-  INSERT INTO tasks (title, description, priority, due_date, category_id, completed, completed_at, sort_order, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`);
-
 const insertAll = db.transaction(() => {
+  // Insert additional categories
+  const catStmt = db.prepare(`
+    INSERT INTO categories (name, color, is_default, sort_order, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const cat of additionalCategories) {
+    catStmt.run(cat.name, cat.color, cat.is_default, cat.sort_order, cat.created_at, cat.updated_at);
+  }
+
+  // Insert tasks
+  const taskStmt = db.prepare(`
+    INSERT INTO tasks (title, description, priority, due_date, category_id, completed, completed_at, sort_order, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
   for (const task of tasks) {
-    insertTask.run(
+    taskStmt.run(
       task.title,
       task.description,
       task.priority,
@@ -460,24 +599,18 @@ const insertAll = db.transaction(() => {
 
 insertAll();
 
-// Summary
-const finalTaskCount = db.prepare('SELECT COUNT(*) as count FROM tasks').get().count;
-const finalCatCount = db.prepare('SELECT COUNT(*) as count FROM categories').get().count;
+// Count records for summary
+const categoryCount = db.prepare('SELECT COUNT(*) as count FROM categories').get().count;
+const taskCount = db.prepare('SELECT COUNT(*) as count FROM tasks').get().count;
 const completedCount = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE completed = 1').get().count;
-const overdueCount = db.prepare("SELECT COUNT(*) as count FROM tasks WHERE due_date < date('now', 'localtime') AND completed = 0 AND due_date IS NOT NULL").get().count;
+const overdueCount = db.prepare("SELECT COUNT(*) as count FROM tasks WHERE completed = 0 AND due_date < date('now') AND due_date IS NOT NULL").get().count;
+const todayCount = db.prepare("SELECT COUNT(*) as count FROM tasks WHERE completed = 0 AND due_date = date('now')").get().count;
 
 console.log('✓ TaskFlow database seeded successfully!');
-console.log(`  Categories: ${finalCatCount} (4 default + 3 custom)`);
-console.log(`  Tasks: ${finalTaskCount} total`);
-console.log(`    - Completed: ${completedCount}`);
-console.log(`    - Overdue: ${overdueCount}`);
-console.log(`    - Active: ${finalTaskCount - completedCount}`);
+console.log(`  - ${categoryCount} categories (${additionalCategories.length} custom + 4 default)`);
+console.log(`  - ${taskCount} tasks (${completedCount} completed)`);
+console.log(`  - ${overdueCount} overdue tasks, ${todayCount} due today`);
 console.log('');
-console.log('The app now has realistic sample data with:');
-console.log('  • Overdue tasks that need attention');
-console.log('  • Tasks due today');
-console.log('  • Upcoming tasks spread across the next week');
-console.log('  • Recently completed tasks for progress tracking');
-console.log('  • Tasks across all priority levels and categories');
+console.log('TaskFlow is ready to use!');
 
 db.close();
